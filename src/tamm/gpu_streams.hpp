@@ -1,7 +1,8 @@
 #pragma once
 
 #include "tamm/errors.hpp"
-#include <map>
+#include <sstream>
+#include <vector>
 
 #if defined(USE_CUDA)
 #include <cublas_v2.h>
@@ -13,6 +14,7 @@
 #include <rocblas.h>
 #elif defined(USE_DPCPP)
 #include "sycl_device.hpp"
+#include <oneapi/mkl/blas.hpp>
 #endif
 
 namespace tamm {
@@ -26,27 +28,30 @@ using gpuMemcpyKind   = hipMemcpyKind;
 #define gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
 #define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
 
-#define HIP_CHECK(err)                                                                      \
-  do {                                                                                      \
-    hipError_t err_ = (err);                                                                \
-    if(err_ != hipSuccess) {                                                                \
-      std::printf("HIP Exception code: %s at %s : %d\n", hipGetErrorString(err_), __FILE__, \
-                  __LINE__);                                                                \
-      throw std::runtime_error("hip runtime error");                                        \
-    }                                                                                       \
+#define HIP_CHECK(FUNC)                                                                           \
+  do {                                                                                            \
+    hipError_t err_ = (FUNC);                                                                     \
+    if(err_ != hipSuccess) {                                                                      \
+      std::ostringstream msg;                                                                     \
+      msg << "HIP Error: " << hipGetErrorString(err_) << ", at " << __FILE__ << " : " << __LINE__ \
+          << std::endl;                                                                           \
+      throw std::runtime_error(msg.str());                                                        \
+    }                                                                                             \
   } while(0)
 
-#define ROCBLAS_CHECK(err)                                                                   \
-  do {                                                                                       \
-    rocblas_status err_ = (err);                                                             \
-    if(err_ != rocblas_status_success) {                                                     \
-      std::printf("rocblas Exception code: %s at %s : %d\n", rocblas_status_to_string(err_), \
-                  __FILE__, __LINE__);                                                       \
-      throw std::runtime_error("rocblas runtime error");                                     \
-    }                                                                                        \
+#define ROCBLAS_CHECK(FUNC)                                                                      \
+  do {                                                                                           \
+    rocblas_status err_ = (FUNC);                                                                \
+    if(err_ != rocblas_status_success) {                                                         \
+      std::ostringstream msg;                                                                    \
+      msg << "ROCBLAS Error: " << rocblas_status_to_string(err_) << ", at " << __FILE__ << " : " \
+          << __LINE__ << std::endl;                                                              \
+      throw std::runtime_error(msg.str());                                                       \
+    }                                                                                            \
   } while(0)
+#endif // USE_HIP
 
-#elif defined(USE_CUDA)
+#if defined(USE_CUDA)
 using gpuStream_t     = cudaStream_t;
 using gpuEvent_t      = cudaEvent_t;
 using gpuBlasHandle_t = cublasHandle_t;
@@ -55,27 +60,30 @@ using gpuMemcpyKind   = cudaMemcpyKind;
 #define gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
 #define gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
 
-#define CUDA_CHECK(err)                                                                            \
-  do {                                                                                             \
-    cudaError_t err_ = (err);                                                                      \
-    if(err_ != cudaSuccess) {                                                                      \
-      std::printf("CUDA Exception code: %s at %s : %d\n", /*cudaGetErrorString*/ (err_), __FILE__, \
-                  __LINE__);                                                                       \
-      throw std::runtime_error("cuda runtime error");                                              \
-    }                                                                                              \
+#define CUDA_CHECK(FUNC)                                                                \
+  do {                                                                                  \
+    cudaError_t err_ = (FUNC);                                                          \
+    if(err_ != cudaSuccess) {                                                           \
+      std::ostringstream msg;                                                           \
+      msg << "CUDA Error: " << cudaGetErrorString(err_) << ", at " << __FILE__ << " : " \
+          << __LINE__ << std::endl;                                                     \
+      throw std::runtime_error(msg.str());                                              \
+    }                                                                                   \
   } while(0)
 
-#define CUBLAS_CHECK(err)                                                                     \
-  do {                                                                                        \
-    cublasStatus_t err_ = (err);                                                              \
-    if(err_ != CUBLAS_STATUS_SUCCESS) {                                                       \
-      std::printf("cublas Exception code: %s at %s : %d\n", /*cublasGetStatusString*/ (err_), \
-                  __FILE__, __LINE__);                                                        \
-      throw std::runtime_error("cublas runtime error");                                       \
-    }                                                                                         \
+#define CUBLAS_CHECK(FUNC)                                                                        \
+  do {                                                                                            \
+    cublasStatus_t err_ = (FUNC);                                                                 \
+    if(err_ != CUBLAS_STATUS_SUCCESS) {                                                           \
+      std::ostringstream msg;                                                                     \
+      msg << "CUBLAS Error: " << /*cublasGetStatusString*/ (err_) << ", at " << __FILE__ << " : " \
+          << __LINE__ << std::endl;                                                               \
+      throw std::runtime_error(msg.str());                                                        \
+    }                                                                                             \
   } while(0)
+#endif // USE_CUDA
 
-#elif defined(USE_DPCPP)
+#if defined(USE_DPCPP)
 using gpuStream_t   = sycl::queue;
 using gpuEvent_t    = sycl::event;
 using gpuMemcpyKind = int;
@@ -93,7 +101,19 @@ auto sycl_asynchandler = [](sycl::exception_list exceptions) {
     }
   }
 };
-#endif
+
+#define ONEMKLBLAS_CHECK(FUNC)                                                         \
+  do {                                                                                 \
+    try {                                                                              \
+      (FUNC)                                                                           \
+    } catch(oneapi::mkl::exception const& ex) {                                        \
+      std::ostringstream msg;                                                          \
+      msg << "oneMKL Error: " << ex.what() << ", at " << __FILE__ << " : " << __LINE__ \
+          << std::endl;                                                                \
+      throw std::runtime_error(msg.str());                                             \
+    }                                                                                  \
+  } while(0)
+#endif // USE_DPCPP
 
 static inline void getDeviceCount(int* id) {
 #if defined(USE_CUDA)
@@ -125,6 +145,16 @@ static inline void gpuSetDevice(int active_device) {
 #endif
 }
 
+static inline void gpuGetDevice(int* active_device) {
+#ifdef USE_CUDA
+  CUDA_CHECK(cudaGetDevice(active_device));
+#elif defined(USE_HIP)
+  HIP_CHECK(hipGetDevice(active_device));
+#elif defined(USE_DPCPP)
+  syclGetDevice(active_device);
+#endif
+}
+
 template<typename T>
 static void gpuMemcpyAsync(T* dst, const T* src, size_t count, gpuMemcpyKind kind,
                            gpuStream_t& stream) {
@@ -135,6 +165,26 @@ static void gpuMemcpyAsync(T* dst, const T* src, size_t count, gpuMemcpyKind kin
   CUDA_CHECK(cudaMemcpyAsync(dst, src, count * sizeof(T), kind, stream));
 #elif defined(USE_HIP)
   HIP_CHECK(hipMemcpyAsync(dst, src, count * sizeof(T), kind, stream));
+#endif
+}
+
+static inline void gpuMemsetAsync(void*& ptr, size_t sizeInBytes, gpuStream_t stream) {
+#if defined(USE_DPCPP)
+  stream.memset(ptr, 0, sizeInBytes);
+#elif defined(USE_HIP)
+  hipMemsetAsync(ptr, 0, sizeInBytes, stream);
+#elif defined(USE_CUDA)
+  cudaMemsetAsync(ptr, 0, sizeInBytes, stream);
+#endif
+}
+
+static inline void gpuStreamSynchronize(gpuStream_t stream) {
+#if defined(USE_DPCPP)
+  stream.wait();
+#elif defined(USE_HIP)
+  hipStreamSynchronize(stream);
+#elif defined(USE_CUDA)
+  cudaStreamSynchronize(stream);
 #endif
 }
 
@@ -241,4 +291,6 @@ public:
   GPUStreamPool& operator=(GPUStreamPool&&)      = delete;
 };
 
+// This API needs to be defined after the class GPUStreamPool since the classs
+// is only declared and defined before this method
 } // namespace tamm

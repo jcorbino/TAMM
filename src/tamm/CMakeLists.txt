@@ -85,6 +85,7 @@ set(TAMM_INCLUDES
     label_translator.hpp
     opmin.hpp
     "${tamm_gpu_INCS}"
+    cpu_memory_pool.hpp
     # spin_tensor.hpp
    )
 
