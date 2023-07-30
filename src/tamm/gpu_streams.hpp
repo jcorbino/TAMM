@@ -1,9 +1,9 @@
 #pragma once
 
 #include "tamm/errors.hpp"
+#include <map>
 #include <sstream>
 #include <vector>
-#include <map>
 
 #if defined(USE_CUDA)
 #include <cublas_v2.h>
