@@ -186,6 +186,12 @@ public:
    */
   TiledIndexSpace operator()(std::string id) const {
     if(id == "all") { return (*this); }
+    if(tiled_info_->tiled_named_subspaces_.find(id) == tiled_info_->tiled_named_subspaces_.end()) {
+      std::cerr << "Named sub-space " + id + " doesn't exist!" << std::endl;
+    }
+    EXPECTS_STR(tiled_info_->tiled_named_subspaces_.find(id) !=
+                  tiled_info_->tiled_named_subspaces_.end(),
+                "Named sub-space doesn't exist!");
 
     return tiled_info_->tiled_named_subspaces_.at(id);
   }
@@ -415,6 +421,7 @@ public:
    *
    * @return maximum number of indices in the TiledIndexSpace
    */
+  // size_t max_num_indices() const { return index_space().num_indices(); }
   size_t max_num_indices() const { return tiled_info_->max_num_indices(); }
 
   /**

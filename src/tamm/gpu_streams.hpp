@@ -3,6 +3,7 @@
 #include "tamm/errors.hpp"
 #include <sstream>
 #include <vector>
+#include <map>
 
 #if defined(USE_CUDA)
 #include <cublas_v2.h>
