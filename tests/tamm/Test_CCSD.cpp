@@ -465,7 +465,7 @@ int main(int argc, char* argv[]) {
   auto       iter_time =
     std::chrono::duration_cast<std::chrono::duration<double>>((timer_end - timer_start)).count();
 
-  if(ec.print()) std::cout << "Tiem taken for closed-shell CD-CCSD: " << iter_time << std::endl;
+  if(ec.print()) std::cout << "Time taken for closed-shell CD-CCSD: " << iter_time << std::endl;
 
   if(profile && ec.print()) {
     std::string   profile_csv = "ccsd_profile.csv";

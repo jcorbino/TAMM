@@ -596,27 +596,15 @@ void block_multiply(
     } // is_same_v<T1,T3>
 
     else if constexpr(internal::is_complex_v<T1> && std::is_same_v<T2, T3>) {
-      std::vector<T1> ainter_buf_vec;
-      std::vector<T1> binter_buf_vec;
-      if(hw != ExecutionHW::GPU) {
-        ainter_buf_vec.resize(static_cast<size_t>(asize.value()));
-        binter_buf_vec.resize(static_cast<size_t>(bsize.value()));
-      }
-
       T1* ainter_buf{nullptr};
       T1* binter_buf{nullptr};
-      // allocate_host_buffers(hw, ainter_buf, asize.value());
-      // allocate_host_buffers(hw, binter_buf, bsize.value());
-      ainter_buf = ainter_buf_vec.data();
-      binter_buf = binter_buf_vec.data();
+      allocate_host_buffers(hw, ainter_buf, asize.value());
+      allocate_host_buffers(hw, binter_buf, bsize.value());
 
-      std::vector<T1> abuf_complex_vec(asize.value());
-      std::vector<T1> bbuf_complex_vec(bsize.value());
-
-      T1* abuf_complex = abuf_complex_vec.data();
-      T1* bbuf_complex = bbuf_complex_vec.data();
-      // allocate_host_buffers(ExecutionHW::CPU, abuf_complex, asize.value());
-      // allocate_host_buffers(ExecutionHW::CPU, bbuf_complex, bsize.value());
+      T1* abuf_complex{nullptr};
+      T1* bbuf_complex{nullptr};
+      allocate_host_buffers(ExecutionHW::CPU, abuf_complex, asize.value());
+      allocate_host_buffers(ExecutionHW::CPU, bbuf_complex, bsize.value());
       T2* abuf_comp_ptr = reinterpret_cast<T2*>(abuf_complex);
       T2* bbuf_comp_ptr = reinterpret_cast<T2*>(bbuf_complex);
 
@@ -641,16 +629,16 @@ void block_multiply(
       }
 
       gemm_wrapper(hw, thandle, AR, BR, B, M, N, K, alpha, beta, abuf_complex, abuf_complex_dev,
-                   bbuf_complex, bbuf_complex_dev, cinter_buf, cinter_buf_dev);
+                   bbuf_complex, bbuf_complex_dev, cinter_buf, cinter_tmp_buf_dev);
       transpose_output(hw, thandle, gpu_trans, cinter_buf, cinter_dims, cinter_labels, cbuf, cdims,
                        clabels, cinter_buf_dev, cinter_tmp_buf_dev, is_assign);
 
       free_device_buffers(hw, abuf_complex_dev, asize.value());
       free_device_buffers(hw, bbuf_complex_dev, bsize.value());
-      // free_host_buffers(ExecutionHW::CPU, abuf_complex, asize.value());
-      // free_host_buffers(ExecutionHW::CPU, bbuf_complex, bsize.value());
-      // free_host_buffers(hw, ainter_buf, asize.value());
-      // free_host_buffers(hw, binter_buf, bsize.value());
+      free_host_buffers(ExecutionHW::CPU, abuf_complex, asize.value());
+      free_host_buffers(ExecutionHW::CPU, bbuf_complex, bsize.value());
+      free_host_buffers(hw, ainter_buf, asize.value());
+      free_host_buffers(hw, binter_buf, bsize.value());
     }
 
     else NOT_IMPLEMENTED();
