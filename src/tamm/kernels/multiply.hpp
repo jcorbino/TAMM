@@ -596,7 +596,6 @@ void block_multiply(
     } // is_same_v<T1,T3>
 
     else if constexpr(internal::is_complex_v<T1> && std::is_same_v<T2, T3>) {
-
       std::vector<T1> ainter_buf_vec;
       std::vector<T1> binter_buf_vec;
       if(hw != ExecutionHW::GPU) {
@@ -672,4 +671,3 @@ void block_multiply(
 } // namespace kernels
 
 } // namespace tamm
-
