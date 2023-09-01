@@ -12,7 +12,7 @@
 #include <cuda_runtime_api.h>
 #elif defined(USE_HIP)
 #include <hip/hip_runtime.h>
-#include <rocblas.h>
+#include <rocblas/rocblas.h>
 #elif defined(USE_DPCPP)
 #include "sycl_device.hpp"
 #include <oneapi/mkl/blas.hpp>
@@ -169,6 +169,27 @@ static void gpuMemcpyAsync(T* dst, const T* src, size_t count, gpuMemcpyKind kin
 #endif
 }
 
+static inline bool gpuEventQuery(gpuEvent_t event) {
+#if defined(USE_DPCPP)
+  return (event.get_info<sycl::info::event::command_execution_status>() ==
+          sycl::info::event_command_status::complete);
+#elif defined(USE_HIP)
+  return (hipEventQuery(event) == hipSuccess);
+#elif defined(USE_CUDA)
+  return (cudaEventQuery(event) == cudaSuccess);
+#endif
+}
+
+static inline void gpuEventSynchronize(gpuEvent_t event) {
+#if defined(USE_DPCPP)
+  event.wait();
+#elif defined(USE_HIP)
+  hipEventSynchronize(event);
+#elif defined(USE_CUDA)
+  cudaEventSynchronize(event);
+#endif
+}
+
 static inline void gpuMemsetAsync(void*& ptr, size_t sizeInBytes, gpuStream_t stream) {
 #if defined(USE_DPCPP)
   stream.memset(ptr, 0, sizeInBytes);
@@ -292,6 +313,6 @@ public:
   GPUStreamPool& operator=(GPUStreamPool&&)      = delete;
 };
 
-// This API needs to be defined after the class GPUStreamPool since the classs
+// This API needs to be defined after the class GPUStreamPool since the class
 // is only declared and defined before this method
 } // namespace tamm
