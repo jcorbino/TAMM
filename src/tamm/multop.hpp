@@ -283,6 +283,7 @@ public:
 
   void execute(ExecutionContext& ec, ExecutionHW hw = ExecutionHW::CPU) override {
     EXPECTS(!is_assign_);
+    cutensorInit(&cut_handle);
     auto& oprof = tamm::OpProfiler::instance();
 
     using TensorElType = typename LabeledTensorT1::element_type;

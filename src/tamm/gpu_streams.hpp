@@ -6,6 +6,7 @@
 #if defined(USE_CUDA)
 #include <cublas_v2.h>
 #include <cuda.h>
+#include <cutensor.h>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
 #elif defined(USE_HIP)
