@@ -210,7 +210,7 @@ void test_4_dim_mult_op(Scheduler& sch, size_t N, Tile tilesize, ExecutionHW ex_
     sch.deallocate(A, B, C).execute();
   }
 
-  #if 0
+#if 0
   {
     Tensor<T>  A{i, j, m, o};
     Tensor<T>  B{m, o, k, l};
@@ -366,7 +366,7 @@ void test_4_dim_mult_op(Scheduler& sch, size_t N, Tile tilesize, ExecutionHW ex_
     norm_check(C, N == 50);
     sch.deallocate(A, B, C).execute();
   }
-  #endif
+#endif
 }
 
 template<typename T>

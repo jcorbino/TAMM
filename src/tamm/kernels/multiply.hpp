@@ -20,17 +20,17 @@ using gpuStream_t = int; // not used
 }
 #endif
 
-#define HANDLE_ERROR(x)                                               \
-{ const auto err = x;                                                 \
-  if( err != CUTENSOR_STATUS_SUCCESS )                                \
-  { printf("Error: %s\n", cutensorGetErrorString(err));} \
-};
+#define HANDLE_ERROR(x)                                                                        \
+  {                                                                                            \
+    const auto err = x;                                                                        \
+    if(err != CUTENSOR_STATUS_SUCCESS) { printf("Error: %s\n", cutensorGetErrorString(err)); } \
+  };
 
-#define HANDLE_CUDA_ERROR(x)                                      \
-{ const auto err = x;                                             \
-  if( err != cudaSuccess )                                        \
-  { printf("Error: %s\n", cudaGetErrorString(err));} \
-};
+#define HANDLE_CUDA_ERROR(x)                                                   \
+  {                                                                            \
+    const auto err = x;                                                        \
+    if(err != cudaSuccess) { printf("Error: %s\n", cudaGetErrorString(err)); } \
+  };
 
 #if defined(USE_CUDA)
 
@@ -473,189 +473,153 @@ void block_multiply(bool isgpuOp,
 
     // dgemm
     if constexpr(std::is_same_v<T1, T2> && std::is_same_v<T1, T3>) {
+      if(hw != ExecutionHW::GPU || cdims.size() <= 1) {
+        std::vector<T2> ainter_buf;
+        std::vector<T3> binter_buf;
 
-    if(hw != ExecutionHW::GPU || cdims.size()<=1) {
-      std::vector<T2> ainter_buf;
-      std::vector<T3> binter_buf;
+        if(hw != ExecutionHW::GPU || !isgpuOp) {
+          ainter_buf.resize(static_cast<size_t>(asize.value()));
+          binter_buf.resize(static_cast<size_t>(bsize.value()));
+        }
 
-      if(hw != ExecutionHW::GPU || !isgpuOp) {
-        ainter_buf.resize(static_cast<size_t>(asize.value()));
-        binter_buf.resize(static_cast<size_t>(bsize.value()));
+        gpu_trans = transpose_inputs(isgpuOp, thandle, ainter_buf, ainter_dims, ainter_labels, abuf,
+                                     asize.value(), adims, alabels, binter_buf, binter_dims,
+                                     binter_labels, bbuf, bsize.value(), bdims, blabels,
+                                     ainter_buf_dev, binter_buf_dev);
+
+        if(!gpu_trans)
+          copy_data_to_gpu_trans(isgpuOp, thandle, ainter_buf.data(), ainter_buf.size(),
+                                 ainter_buf_dev, binter_buf.data(), binter_buf.size(),
+                                 binter_buf_dev);
+
+        gemm_wrapper(isgpuOp, thandle, AR, BR, B, M, N, K, alpha, beta, ainter_buf, ainter_buf_dev,
+                     binter_buf, binter_buf_dev, cinter_buf, cinter_tmp_buf_dev);
+
+        transpose_output(isgpuOp, thandle, gpu_trans, cinter_buf, cinter_dims, cinter_labels, cbuf,
+                         cdims, clabels, cinter_buf_dev, cinter_tmp_buf_dev, is_assign);
       }
 
-      gpu_trans = transpose_inputs(isgpuOp, thandle, ainter_buf, ainter_dims, ainter_labels, abuf,
-                                   asize.value(), adims, alabels, binter_buf, binter_dims,
-                                   binter_labels, bbuf, bsize.value(), bdims, blabels,
-                                   ainter_buf_dev, binter_buf_dev);
+      else {
+        typedef double floatTypeA;
+        typedef double floatTypeB;
+        typedef double floatTypeC;
+        typedef double floatTypeCompute;
 
-      if(!gpu_trans)
-        copy_data_to_gpu_trans(isgpuOp, thandle, ainter_buf.data(), ainter_buf.size(),
-                               ainter_buf_dev, binter_buf.data(), binter_buf.size(),
-                               binter_buf_dev);
+        cudaDataType_t        typeA       = CUDA_R_64F;
+        cudaDataType_t        typeB       = CUDA_R_64F;
+        cudaDataType_t        typeC       = CUDA_R_64F;
+        cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_64F;
 
-      gemm_wrapper(isgpuOp, thandle, AR, BR, B, M, N, K, alpha, beta, ainter_buf, ainter_buf_dev,
-                   binter_buf, binter_buf_dev, cinter_buf, cinter_tmp_buf_dev);
+        floatTypeCompute alpha = (floatTypeCompute) 1.0f;
+        floatTypeCompute beta  = (floatTypeCompute) 0.0f;
+        if(!is_assign) beta = 1.0f;
 
-      transpose_output(isgpuOp, thandle, gpu_trans, cinter_buf, cinter_dims, cinter_labels, cbuf,
-                       cdims, clabels, cinter_buf_dev, cinter_tmp_buf_dev, is_assign);
-    }
+        std::vector<int> modeC = clabels;
+        std::vector<int> modeA = alabels;
+        std::vector<int> modeB = blabels;
 
-    else
-    {
-      typedef double floatTypeA;
-      typedef double floatTypeB;
-      typedef double floatTypeC;
-      typedef double floatTypeCompute;
+        // std::reverse(modeC.begin(), modeC.end());
+        // std::reverse(modeA.begin(), modeA.end());
+        // std::reverse(modeB.begin(), modeB.end());
 
-      cudaDataType_t typeA = CUDA_R_64F;
-      cudaDataType_t typeB = CUDA_R_64F;
-      cudaDataType_t typeC = CUDA_R_64F;
-      cutensorComputeType_t typeCompute = CUTENSOR_COMPUTE_64F;
+        int nmodeA = modeA.size();
+        int nmodeB = modeB.size();
+        int nmodeC = modeC.size();
 
-      floatTypeCompute alpha = (floatTypeCompute)1.0f;
-      floatTypeCompute beta  = (floatTypeCompute)0.0f;
-      if(!is_assign) beta = 1.0f;
+        std::vector<int> rcdims(nmodeC);
+        std::vector<int> radims(nmodeA);
+        std::vector<int> rbdims(nmodeB);
 
-      std::vector<int> modeC = clabels;
-      std::vector<int> modeA = alabels;
-      std::vector<int> modeB = blabels;
+        for(auto i = 0; i < nmodeC; i++) rcdims[i] = cdims[i].value();
+        for(auto i = 0; i < nmodeA; i++) radims[i] = adims[i].value();
+        for(auto i = 0; i < nmodeB; i++) rbdims[i] = bdims[i].value();
 
-      // std::reverse(modeC.begin(), modeC.end());
-      // std::reverse(modeA.begin(), modeA.end());
-      // std::reverse(modeB.begin(), modeB.end());
+        // std::reverse(rcdims.begin(), rcdims.end());
+        // std::reverse(radims.begin(), radims.end());
+        // std::reverse(rbdims.begin(), rbdims.end());
 
-      int nmodeA = modeA.size();
-      int nmodeB = modeB.size();
-      int nmodeC = modeC.size();
+        std::unordered_map<int, int64_t> extent;
+        for(auto i = 0; i < nmodeC; i++) extent[modeC[i]] = rcdims[i];
+        for(auto i = 0; i < nmodeA; i++) extent[modeA[i]] = radims[i];
+        for(auto i = 0; i < nmodeB; i++) extent[modeB[i]] = rbdims[i];
 
-      std::vector<int> rcdims(nmodeC);
-      std::vector<int> radims(nmodeA);
-      std::vector<int> rbdims(nmodeB);
+        std::vector<int64_t> extentC;
+        for(auto mode: modeC) extentC.push_back(extent[mode]);
+        std::vector<int64_t> extentA;
+        for(auto mode: modeA) extentA.push_back(extent[mode]);
+        std::vector<int64_t> extentB;
+        for(auto mode: modeB) extentB.push_back(extent[mode]);
 
-      for (auto i=0;i<nmodeC;i++) rcdims[i]=cdims[i].value();
-      for (auto i=0;i<nmodeA;i++) radims[i]=adims[i].value();
-      for (auto i=0;i<nmodeB;i++) rbdims[i]=bdims[i].value();
+        T2* A_d = th_a;
+        T2* B_d = th_b;
+        // T2* C_d = cinter_buf_dev;
 
-      // std::reverse(rcdims.begin(), rcdims.end());
-      // std::reverse(radims.begin(), radims.end());
-      // std::reverse(rbdims.begin(), rbdims.end());
+#if(defined(USE_CUDA) || defined(USE_HIP) || defined(USE_DPCPP))
+        // host-->device copy
+        gpuMemcpyAsync<T2>(th_a, abuf, asize.value(), gpuMemcpyHostToDevice, thandle);
+        gpuMemcpyAsync<T3>(th_b, bbuf, bsize.value(), gpuMemcpyHostToDevice, thandle);
+        cudaDeviceSynchronize();
+#endif
 
-      std::unordered_map<int, int64_t> extent;
-      for (auto i=0;i<nmodeC;i++) extent[modeC[i]] = rcdims[i];
-      for (auto i=0;i<nmodeA;i++) extent[modeA[i]] = radims[i];
-      for (auto i=0;i<nmodeB;i++) extent[modeB[i]] = rbdims[i];
+        cutensorTensorDescriptor_t descA;
+        HANDLE_ERROR(cutensorInitTensorDescriptor(&cut_handle, &descA, nmodeA, extentA.data(),
+                                                  NULL, /*stride*/
+                                                  typeA, CUTENSOR_OP_IDENTITY));
 
-    std::vector<int64_t> extentC;
-    for (auto mode : modeC)
-        extentC.push_back(extent[mode]);
-    std::vector<int64_t> extentA;
-    for (auto mode : modeA)
-        extentA.push_back(extent[mode]);
-    std::vector<int64_t> extentB;
-    for (auto mode : modeB)
-        extentB.push_back(extent[mode]);      
+        cutensorTensorDescriptor_t descB;
+        HANDLE_ERROR(cutensorInitTensorDescriptor(&cut_handle, &descB, nmodeB, extentB.data(),
+                                                  NULL, /*stride*/
+                                                  typeB, CUTENSOR_OP_IDENTITY));
 
-    T2* A_d = th_a;
-    T2* B_d = th_b;
-    // T2* C_d = cinter_buf_dev;
+        cutensorTensorDescriptor_t descC;
+        HANDLE_ERROR(cutensorInitTensorDescriptor(&cut_handle, &descC, nmodeC, extentC.data(),
+                                                  NULL, /*stride*/
+                                                  typeC, CUTENSOR_OP_IDENTITY));
 
-    #if(defined(USE_CUDA) || defined(USE_HIP) || defined(USE_DPCPP))
-      // host-->device copy
-      gpuMemcpyAsync<T2>(th_a, abuf, asize.value(), gpuMemcpyHostToDevice, thandle);
-      gpuMemcpyAsync<T3>(th_b, bbuf, bsize.value(), gpuMemcpyHostToDevice, thandle);
-      cudaDeviceSynchronize();
-    #endif     
+        uint32_t alignmentRequirementA;
+        HANDLE_ERROR(
+          cutensorGetAlignmentRequirement(&cut_handle, A_d, &descA, &alignmentRequirementA));
 
-    cutensorTensorDescriptor_t descA;
-    HANDLE_ERROR(cutensorInitTensorDescriptor(&cut_handle,
-                 &descA,
-                 nmodeA,
-                 extentA.data(),
-                 NULL,/*stride*/
-                 typeA, CUTENSOR_OP_IDENTITY));
+        uint32_t alignmentRequirementB;
+        HANDLE_ERROR(
+          cutensorGetAlignmentRequirement(&cut_handle, B_d, &descB, &alignmentRequirementB));
 
-    cutensorTensorDescriptor_t descB;
-    HANDLE_ERROR(cutensorInitTensorDescriptor(&cut_handle,
-                 &descB,
-                 nmodeB,
-                 extentB.data(),
-                 NULL,/*stride*/
-                 typeB, CUTENSOR_OP_IDENTITY));
+        uint32_t alignmentRequirementC;
+        HANDLE_ERROR(cutensorGetAlignmentRequirement(&cut_handle, cinter_buf_dev, &descC,
+                                                     &alignmentRequirementC));
 
-    cutensorTensorDescriptor_t descC;
-    HANDLE_ERROR(cutensorInitTensorDescriptor( &cut_handle,
-                 &descC,
-                 nmodeC,
-                 extentC.data(),
-                 NULL,/*stride*/
-                 typeC, CUTENSOR_OP_IDENTITY));
+        cutensorContractionDescriptor_t desc;
+        HANDLE_ERROR(cutensorInitContractionDescriptor(
+          &cut_handle, &desc, &descA, modeA.data(), alignmentRequirementA, &descB, modeB.data(),
+          alignmentRequirementB, &descC, modeC.data(), alignmentRequirementC, &descC, modeC.data(),
+          alignmentRequirementC, typeCompute));
 
-     uint32_t alignmentRequirementA;
-     HANDLE_ERROR(cutensorGetAlignmentRequirement(&cut_handle,
-                  A_d,
-                  &descA,
-                  &alignmentRequirementA));
+        cutensorContractionFind_t find;
+        HANDLE_ERROR(cutensorInitContractionFind(&cut_handle, &find, CUTENSOR_ALGO_DEFAULT));
 
-     uint32_t alignmentRequirementB;
-     HANDLE_ERROR(cutensorGetAlignmentRequirement(&cut_handle,
-                  B_d,
-                  &descB,
-                  &alignmentRequirementB));
+        /**********************
+         * Query workspace
+         **********************/
 
-     uint32_t alignmentRequirementC;
-     HANDLE_ERROR(cutensorGetAlignmentRequirement(&cut_handle,
-                  cinter_buf_dev,
-                  &descC, 
-                  &alignmentRequirementC));                 
+        uint64_t worksize = 0;
+        HANDLE_ERROR(cutensorContractionGetWorkspaceSize(
+          &cut_handle, &desc, &find, CUTENSOR_WORKSPACE_RECOMMENDED, &worksize));
 
-    cutensorContractionDescriptor_t desc;
-    HANDLE_ERROR(cutensorInitContractionDescriptor(&cut_handle, 
-                 &desc,
-                 &descA, modeA.data(), alignmentRequirementA,
-                 &descB, modeB.data(), alignmentRequirementB,
-                 &descC, modeC.data(), alignmentRequirementC,
-                 &descC, modeC.data(), alignmentRequirementC,
-                 typeCompute));
+        T2* work{nullptr};
+        if(worksize > 0) allocate_device_buffers(hw, work, worksize / sizeof(T2));
 
-      cutensorContractionFind_t find;
-      HANDLE_ERROR(cutensorInitContractionFind( 
-                  &cut_handle, &find, 
-                  CUTENSOR_ALGO_DEFAULT));
+        cutensorContractionPlan_t plan;
+        HANDLE_ERROR(cutensorInitContractionPlan(&cut_handle, &plan, &desc, &find, worksize));
 
-      /**********************
-       * Query workspace
-       **********************/
+        auto err = cutensorContraction(&cut_handle, &plan, (void*) &alpha, A_d, B_d, (void*) &beta,
+                                       cinter_buf_dev, cinter_buf_dev, work, worksize, thandle);
 
-      uint64_t worksize = 0;
-      HANDLE_ERROR(cutensorContractionGetWorkspaceSize(&cut_handle,
-                  &desc,
-                  &find,
-                  CUTENSOR_WORKSPACE_RECOMMENDED, &worksize));
+        cudaDeviceSynchronize();
 
-      T2 *work{nullptr};
-      if (worksize > 0)
-          allocate_device_buffers(hw, work, worksize/sizeof(T2));
-
-      cutensorContractionPlan_t plan;
-      HANDLE_ERROR(cutensorInitContractionPlan(&cut_handle,
-                  &plan,
-                  &desc,
-                  &find,
-                  worksize));
-
-      auto err = cutensorContraction(&cut_handle,
-                                &plan,
-                                (void*) &alpha, A_d, B_d,
-                                (void*) &beta,  cinter_buf_dev, cinter_buf_dev, 
-                                work, worksize, thandle);
-
-      cudaDeviceSynchronize();
-
-      if (err != CUTENSOR_STATUS_SUCCESS)
-      {
+        if(err != CUTENSOR_STATUS_SUCCESS) {
           printf("ERROR: %s in line %d\n", cutensorGetErrorString(err), __LINE__);
-      }
-      free_device_buffers(hw, work, worksize/sizeof(T2));                 
+        }
+        free_device_buffers(hw, work, worksize / sizeof(T2));
       }
     }
     else {
